@@ -65,4 +65,5 @@ result
 tensorboard
 src/tv
 *.onnx
-
+*.pt
+error.txt
