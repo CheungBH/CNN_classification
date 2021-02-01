@@ -52,7 +52,7 @@ def eval(model_path, img_path, num_classes, keyword, cfg=None):
         label_tensors.append(torch.LongTensor([]).to("cuda:0"))
         preds_tensors.append(torch.FloatTensor([]).to("cuda:0"))
 
-    data_loader = TestDataLoader(img_path, opt.batch_size, keyword)
+    data_loader = TestDataLoader(img_path, opt.batch, keyword)
     pbar = tqdm(enumerate(data_loader.dataloaders_dict[keyword]), total=len(data_loader.dataloaders_dict[keyword]))
     pre_name = get_pretrain(model_path)
     Inference = ModelInference(num_classes, pre_name, model_path, cfg=cfg)
@@ -86,14 +86,19 @@ def eval(model_path, img_path, num_classes, keyword, cfg=None):
 
 
 if __name__ == '__main__':
-    model_path = config.eval_model_path
+    model_dict = {"weight/pruning_test/origin/origin_resnet18_2cls_best.pth": None,
+                  "weight/pruning_test/sparse/sparse_resnet18_13_decay1.pth": None,
+                  "weight/pruning_test/pruned/new_model_resnet18.pth": "weight/pruning_test/cfg2.txt",
+                  "weight/pruning_test/finetune/finetune_resnet18_2cls_best.pth": "weight/pruning_test/cfg2.txt"}
+    # model_path = config.eval_model_path
     img_path = config.eval_img_folder
-    model_config = config.eval_config
+    # model_config = config.eval_config
     keyword = config.eval_keyword
     opt.dataset = "CatDog"
-    opt.loadModel = model_path
     import os
     num_classes = len(os.listdir(os.path.join(img_path, "train")))
 
-    with torch.no_grad():
-        eval(model_path, img_path, num_classes, keyword, model_config)
+    for model_path, model_config in model_dict.items():
+        with torch.no_grad():
+            opt.loadModel = model_path
+            eval(model_path, img_path, num_classes, keyword, model_config)
