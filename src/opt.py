@@ -68,5 +68,4 @@ parser.add_argument('--num_worker', default=5, type=int,
                     help='num worker of train')
 parser.add_argument('--save_interval', default=8, type=int,
                     help='interval')
-parser.add_argument('--sparse', action='store_true', help='sparse training')
 opt = parser.parse_args()

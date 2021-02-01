@@ -2,7 +2,7 @@
 from __future__ import print_function
 from src.model import CNNModel, LeNet
 from src.opt import opt
-if opt.sparse:
+if opt.sparse_s:
     from src.sparse_trainer import train_model
 else:
     from src.trainer import train_model

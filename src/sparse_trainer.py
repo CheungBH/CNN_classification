@@ -160,10 +160,10 @@ def train_model(model, dataloaders, criterion, optimizer, cmd, writer, is_incept
                         else:
                             loss.backward()
 
-
-                        sr_flag = True
-                        s = 0.001
-                        BNOptimizer.updateBN(sr_flag, model, s, prune_idx)
+                        # sr_flag = True
+                        s = opt.sparse_s
+                        # BNOptimizer.updateBN(sr_flag, model, s, prune_idx)
+                        BNOptimizer.updateBN(model, s, prune_idx)
 
 
                         optimizer.step()
