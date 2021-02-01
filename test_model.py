@@ -42,7 +42,7 @@ class Tester:
 
 if __name__ == '__main__':
     model_pth = config.test_model_path
-    img_path = config.test_img
+    img_path = config.test_img_folder
     # batch_size = 16
     # data_loader = DataLoader(img_path, batch_size)
     # for names, inputs, labels in data_loader.dataloaders_dict['val']:

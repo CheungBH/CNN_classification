@@ -35,7 +35,7 @@ test_img_folder = "data/CatDog"
 test_config = "prune/cfg2.txt"
 
 # Evaluation
-eval_model_path = "weight/test/finetune/finetune_resnet18_2cls_best.pth"
+eval_model_path = "weight/test/origin/origin_resnet18_2cls_best.pth"
 eval_img_folder = "data/CatDog"
-eval_config = "test_config"
+eval_config = None
 eval_keyword = "val"

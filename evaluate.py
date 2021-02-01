@@ -45,14 +45,14 @@ from src.utils import get_pretrain
 #     plt.show()
 
 
-def test(model_path, img_path, batch_size, num_classes, keyword, cfg=None):
+def eval(model_path, img_path, num_classes, keyword, cfg=None):
 
     label_tensors, preds_tensors = [], []
     for _ in range(num_classes):
         label_tensors.append(torch.LongTensor([]).to("cuda:0"))
         preds_tensors.append(torch.FloatTensor([]).to("cuda:0"))
 
-    data_loader = TestDataLoader(img_path, batch_size, keyword)
+    data_loader = TestDataLoader(img_path, opt.batch_size, keyword)
     pbar = tqdm(enumerate(data_loader.dataloaders_dict[keyword]), total=len(data_loader.dataloaders_dict[keyword]))
     pre_name = get_pretrain(model_path)
     Inference = ModelInference(num_classes, pre_name, model_path, cfg=cfg)
@@ -90,12 +90,10 @@ if __name__ == '__main__':
     img_path = config.eval_img_folder
     model_config = config.eval_config
     keyword = config.eval_keyword
-    batch_size = opt.batch
     opt.dataset = "CatDog"
     opt.loadModel = model_path
     import os
-    classes = os.listdir(os.path.join(img_path, "train"))
-    num_classes = len(classes)
+    num_classes = len(os.listdir(os.path.join(img_path, "train")))
 
     with torch.no_grad():
-        test(model_path, img_path, batch_size, num_classes, keyword, model_config)
+        eval(model_path, img_path, num_classes, keyword, model_config)
