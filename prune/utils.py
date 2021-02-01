@@ -34,16 +34,16 @@ def gather_bn_weights(module_list, prune_idx):
 class BNOptimizer():
 
     @staticmethod
-    def updateBN(sr_flag, model, s, prune_idx):
-        if sr_flag:
-            bn_weights = gather_bn_weights(list(model.named_modules()), prune_idx)
-            bn_numpy = bn_weights.numpy()
-            if np.mean(bn_numpy) < 0.01:
-                s = s * 0.01
-            for idx in prune_idx:
-                # Squential(Conv, BN, Lrelu)
-                bn_module = list(model.named_modules())[idx][1]
-                bn_module.weight.grad.data.add_(s * torch.sign(bn_module.weight.data))  # L1
+    def updateBN(model, s, prune_idx):
+        # if sr_flag:
+        bn_weights = gather_bn_weights(list(model.named_modules()), prune_idx)
+        bn_numpy = bn_weights.numpy()
+        if np.mean(bn_numpy) < 0.01:
+            s = s * 0.01
+        for idx in prune_idx:
+            # Squential(Conv, BN, Lrelu)
+            bn_module = list(model.named_modules())[idx][1]
+            bn_module.weight.grad.data.add_(s * torch.sign(bn_module.weight.data))  # L1
 
 
 def obtain_bn_mask(bn_module, thre):
@@ -138,8 +138,7 @@ def init_weights_from_loose_model(all_conv_layer, Conv_id, prune_model, model, C
                 index = all_conv_layer[all_conv_layer.index(idx) - 1]
                 in_channel_idx = np.argwhere(CBLidx2mask[index])[:, 0].tolist()
 
-            compact_bn, loose_bn = list(prune_model.named_modules())[idx + 1][1], list(model.named_modules())[idx + 1][
-                1]
+            compact_bn, loose_bn = list(prune_model.named_modules())[idx + 1][1], list(model.named_modules())[idx + 1][1]
             compact_bn.weight.data = loose_bn.weight.data[out_channel_idx].clone()
             compact_bn.bias.data = loose_bn.bias.data[out_channel_idx].clone()
             compact_bn.running_mean.data = loose_bn.running_mean.data[out_channel_idx].clone()
