@@ -43,8 +43,8 @@ def train_model(model, dataloaders, criterion, optimizer, cmd, writer, is_incept
     epoch_ls = []
     early_stopping = EarlyStopping(patience=opt.patience, verbose=True)
 
-    prune_idx,ignore_id,all_conv = parse_module_defs(model)
-    print(prune_idx)
+    # prune_idx,ignore_id,all_conv = parse_module_defs(model)
+    # print(prune_idx)
 
     decay, decay_epoch = 0, []
     stop = False
@@ -92,7 +92,6 @@ def train_model(model, dataloaders, criterion, optimizer, cmd, writer, is_incept
         elif epoch> num_epochs *0.9:
             optimizer, lr = lr_decay2(optimizer, lr)
 
-
         log_tmp.append(lr)
         log_tmp.append("")
 
@@ -127,8 +126,7 @@ def train_model(model, dataloaders, criterion, optimizer, cmd, writer, is_incept
             batch_num = 0
             batch_start_time = time.time()
             for names, inputs, labels in dataloaders[phase]:
-                # print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
-                # print(len(inputs))
+
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -161,11 +159,8 @@ def train_model(model, dataloaders, criterion, optimizer, cmd, writer, is_incept
                             loss.backward()
 
                         # sr_flag = True
-                        s = opt.sparse_s
                         # BNOptimizer.updateBN(sr_flag, model, s, prune_idx)
-                        BNOptimizer.updateBN(model, s, prune_idx)
-
-
+                        BNOptimizer.updateBN(model, opt.sparse_s)
                         optimizer.step()
 
                 running_loss += loss.item() * inputs.size(0)
@@ -181,10 +176,15 @@ def train_model(model, dataloaders, criterion, optimizer, cmd, writer, is_incept
             epoch_loss = running_loss / len(dataloaders[phase].dataset)
             epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
 
-            bn_weights = gather_bn_weights(list(model.named_modules()), prune_idx)
-            bn_numpy = bn_weights.numpy()
-            print(np.mean(bn_numpy))
+            bn_sum, bn_num = 0, 0
+            for mod in model.modules():
+                if isinstance(mod, nn.BatchNorm2d):
+                    bn_num += mod.num_features
+                    bn_sum += torch.sum(abs(mod.weight))
+                    writer.add_histogram("bn_weight", mod.weight.data.cpu().numpy(), epoch)
 
+            bn_ave = bn_sum/bn_num
+            print("Current bn : {} --> {}".format(epoch, bn_ave))
 
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
             log_writer.write('{} Loss: {:.4f} Acc: {:.4f}\n'.format(phase, epoch_loss, epoch_acc))

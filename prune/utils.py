@@ -4,11 +4,31 @@ import torch.nn as nn
 import cv2
 
 
+def parse_module_defs_shortcut(model):
+    ignore_id, normal_id, shortcut_id, downsample_id, all_bn_id = [], [], [], [], []
+    for i, layer in enumerate(list(model.named_modules())):
+        if isinstance(layer[1], nn.BatchNorm2d):
+            all_bn_id.append(i)
+            if "bn2" in layer[0]:
+                shortcut_id.append(i)
+            elif "downsample" in layer[0]:
+                downsample_id.append(i)
+            elif i < 5:
+                ignore_id.append(i)
+            else:
+                normal_id.append(i)
+    return normal_id, shortcut_id, downsample_id, ignore_id, all_bn_id
+
+
 def parse_module_defs(model):
     all_conv = []
     bn_id = []
     ignore_idx = set()
     # add bn module to prune_id and every first conv layer of block like layer *.0.conv1
+    # for i, layer in enumerate(list(model.named_modules())):
+    #     if isinstance(layer[1], nn.BatchNorm2d):
+    #         bn_id.append(i)
+    # prune_id = bn_id
     for i, layer in enumerate(list(model.named_modules())):
         # choose the first conv in every basicblock
         if '.bn1' in layer[0]:
@@ -32,18 +52,17 @@ def gather_bn_weights(module_list, prune_idx):
 
 
 class BNOptimizer():
-
     @staticmethod
-    def updateBN(model, s, prune_idx):
+    def updateBN(model, s):
         # if sr_flag:
-        bn_weights = gather_bn_weights(list(model.named_modules()), prune_idx)
-        bn_numpy = bn_weights.numpy()
-        if np.mean(bn_numpy) < 0.01:
-            s = s * 0.01
-        for idx in prune_idx:
-            # Squential(Conv, BN, Lrelu)
-            bn_module = list(model.named_modules())[idx][1]
-            bn_module.weight.grad.data.add_(s * torch.sign(bn_module.weight.data))  # L1
+        # bn_weights = gather_bn_weights(list(model.named_modules()), prune_idx)
+        # bn_numpy = bn_weights.numpy()
+        # if np.mean(bn_numpy) < 0.01:
+        #     s = s * 0.01
+
+        for mod in model.modules():
+            if isinstance(mod, nn.BatchNorm2d):
+                mod.weight.grad.data.add_(s * torch.sign(mod.weight.data))
 
 
 def obtain_bn_mask(bn_module, thre):
@@ -119,6 +138,36 @@ def obtain_filters_mask(model, prune_idx, thre):
     return pruned_filters[1:], pruned_maskers
 
 
+def init_weights_from_loose_model_shortcut(all_conv_layer, Conv_id, prune_model, model, CBLidx2mask):
+    for i, idx in enumerate(all_conv_layer):
+        if i > 0:
+            if idx in Conv_id:
+                out_channel_idx = np.argwhere(CBLidx2mask[idx])[:, 0].tolist()
+                # last conv index
+                last_conv_index = all_conv_layer[all_conv_layer.index(idx) - 1]
+                if last_conv_index in Conv_id:
+                    in_channel_idx = np.argwhere(CBLidx2mask[last_conv_index])[:, 0].tolist()
+                else:
+                    in_channel_idx = list(range(
+                        list(prune_model.named_modules())[all_conv_layer[all_conv_layer.index(idx) - 1]][
+                            1].out_channels))
+            else:
+                # we should make conv2's input equal to the output channel of conv1.
+                out_channel_idx = list(range(list(prune_model.named_modules())[idx][1].out_channels))
+                index = all_conv_layer[all_conv_layer.index(idx) - 1]
+                in_channel_idx = np.argwhere(CBLidx2mask[index])[:, 0].tolist()
+
+            compact_bn, loose_bn = list(prune_model.named_modules())[idx + 1][1], list(model.named_modules())[idx + 1][1]
+            compact_bn.weight.data = loose_bn.weight.data[out_channel_idx].clone()
+            compact_bn.bias.data = loose_bn.bias.data[out_channel_idx].clone()
+            compact_bn.running_mean.data = loose_bn.running_mean.data[out_channel_idx].clone()
+            compact_bn.running_var.data = loose_bn.running_var.data[out_channel_idx].clone()
+
+            compact_conv, loose_conv = list(prune_model.named_modules())[idx][1], list(model.named_modules())[idx][1]
+            tmp = loose_conv.weight.data[:, in_channel_idx, :, :].clone()
+            compact_conv.weight.data = tmp[out_channel_idx, :, :, :].clone()
+
+
 def init_weights_from_loose_model(all_conv_layer, Conv_id, prune_model, model, CBLidx2mask):
     for i, idx in enumerate(all_conv_layer):
         if i > 0:
@@ -147,6 +196,79 @@ def init_weights_from_loose_model(all_conv_layer, Conv_id, prune_model, model, C
             compact_conv, loose_conv = list(prune_model.named_modules())[idx][1], list(model.named_modules())[idx][1]
             tmp = loose_conv.weight.data[:, in_channel_idx, :, :].clone()
             compact_conv.weight.data = tmp[out_channel_idx, :, :, :].clone()
+
+
+def merge_mask(CBLidx2mask, CBLidx2filter):
+    mask_begin = [23, 39, 55]
+    # mask_groups = [[23, 26, 32], [39, 42, 48], [55, 58, 64]]
+    # for idx, mod in enumerate(model.modules()):
+    for idx in mask_begin:
+        Merge_masks = []
+        Merge_masks.append(torch.Tensor(CBLidx2mask[idx]).unsqueeze(0))
+        Merge_masks.append(torch.Tensor(CBLidx2mask[idx+3]).unsqueeze(0))
+        Merge_masks.append(torch.Tensor(CBLidx2mask[idx+9]).unsqueeze(0))
+        Merge_masks = torch.cat(Merge_masks, 0)
+        merge_mask = (torch.sum(Merge_masks, dim=0) > 0).float()
+
+        filter_num = int(torch.sum(merge_mask).item())
+        merge_mask = np.array(merge_mask)
+        CBLidx2mask[idx] = merge_mask
+        CBLidx2mask[idx + 3] = merge_mask
+        CBLidx2mask[idx + 9] = merge_mask
+
+        CBLidx2filter[idx] = filter_num
+        CBLidx2filter[idx + 3] = filter_num
+        CBLidx2filter[idx + 9] = filter_num
+    return CBLidx2mask, CBLidx2filter
+
+    # for i in range(len(model.module_defs) - 1, -1, -1):
+    #     mtype = model.module_defs[i]['type']
+    #     if mtype == 'shortcut':
+    #         if model.module_defs[i]['is_access']:
+    #             continue
+    #
+    #         Merge_masks = []
+    #         layer_i = i
+    #         while mtype == 'shortcut':
+    #             model.module_defs[layer_i]['is_access'] = True
+    #
+    #             if model.module_defs[layer_i - 1]['type'] == 'convolutional':
+    #                 bn = int(model.module_defs[layer_i - 1]['batch_normalize'])
+    #                 if bn:
+    #                     Merge_masks.append(CBLidx2mask[layer_i - 1].unsqueeze(0))
+    #
+    #             layer_i = int(model.module_defs[layer_i]['from']) + layer_i
+    #             mtype = model.module_defs[layer_i]['type']
+    #
+    #             if mtype == 'convolutional':
+    #                 bn = int(model.module_defs[layer_i]['batch_normalize'])
+    #                 if bn:
+    #                     Merge_masks.append(CBLidx2mask[layer_i].unsqueeze(0))
+    #
+    #         if len(Merge_masks) > 1:
+    #             Merge_masks = torch.cat(Merge_masks, 0)
+    #             merge_mask = (torch.sum(Merge_masks, dim=0) > 0).float()
+    #         else:
+    #             merge_mask = Merge_masks[0].float()
+    #
+    #         layer_i = i
+    #         mtype = 'shortcut'
+    #         while mtype == 'shortcut':
+    #
+    #             if model.module_defs[layer_i - 1]['type'] == 'convolutional':
+    #                 bn = int(model.module_defs[layer_i - 1]['batch_normalize'])
+    #                 if bn:
+    #                     CBLidx2mask[layer_i - 1] = merge_mask
+    #                     CBLidx2filters[layer_i - 1] = int(torch.sum(merge_mask).item())
+    #
+    #             layer_i = int(model.module_defs[layer_i]['from']) + layer_i
+    #             mtype = model.module_defs[layer_i]['type']
+    #
+    #             if mtype == 'convolutional':
+    #                 bn = int(model.module_defs[layer_i]['batch_normalize'])
+    #                 if bn:
+    #                     CBLidx2mask[layer_i] = merge_mask
+    #                     CBLidx2filters[layer_i] = int(torch.sum(merge_mask).item())
 
 
 def image_normalize(img_name, size=224):
