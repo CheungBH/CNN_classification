@@ -80,7 +80,7 @@ class CNNModel(object):
             self.model.fc = nn.Linear(num_ftrs, num_classes)
             # input_size = 299
         elif model_name == "resnet18":
-            from prune.resnet_18_prune import ResNet,BasicBlock
+            from prune.resnet_18_prune import ResNet, BasicBlock
             self.model = ResNet(BasicBlock,[2,2,2,2],cfg)
             self.set_parameter_requires_grad(self.model, feature_extract)
             # num_ftrs = self.model.fc.in_features
@@ -94,6 +94,9 @@ class CNNModel(object):
                     num_ftrs = self.model.fc.in_features
                     self.model.fc = nn.Linear(num_ftrs, num_classes)
                     self.model.load_state_dict(torch.load(opt.loadModel, map_location=device))
+            else:
+                num_ftrs = self.model.fc.in_features
+                self.model.fc = nn.Linear(num_ftrs, num_classes)
 
             # input_size = 224
         elif model_name == "resnet34":

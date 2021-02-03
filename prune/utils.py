@@ -11,13 +11,13 @@ def parse_module_defs_shortcut(model):
             all_bn_id.append(i)
             if "bn2" in layer[0]:
                 shortcut_id.append(i)
-            elif "downsample" in layer[0]:
+            elif "downsample" in layer[0] or i < 5:
                 downsample_id.append(i)
-            elif i < 5:
-                ignore_id.append(i)
+            # elif i < 5:
+            #     ignore_id.append(i)
             else:
                 normal_id.append(i)
-    return normal_id, shortcut_id, downsample_id, ignore_id, all_bn_id
+    return normal_id, shortcut_id, downsample_id, all_bn_id
 
 
 def parse_module_defs(model):
@@ -109,7 +109,6 @@ def obtain_filters_mask(model, prune_idx, thre):
             if idx in prune_idx:
                 mask = obtain_bn_mask(module[1], thre).cpu().numpy()
                 remain = int(mask.sum())
-                pruned = pruned + mask.shape[0] - remain
 
                 if remain == 0:  # 保证至少有一个channel
                     # print("Channels would be all pruned!")
@@ -117,55 +116,79 @@ def obtain_filters_mask(model, prune_idx, thre):
                     max_value = module[1].weight.data.abs().max()
                     mask = obtain_bn_mask(module[1], max_value).cpu().numpy()
                     remain = int(mask.sum())
-                    pruned = pruned + mask.shape[0] - remain
+                    # pruned = pruned + mask.shape[0] - remain
+
+                pruned = pruned + mask.shape[0] - remain
                 print(f'layer index: {idx:>3d} \t total channel: {mask.shape[0]:>4d} \t '
                       f'remaining channel: {remain:>4d}')
 
                 pruned_filters.append(remain)
                 pruned_maskers.append(mask.copy())
+                total += mask.shape[0]
+                num_filters.append(remain)
+                filters_mask.append(mask.copy())
             else:
 
                 mask = np.ones(module[1].weight.data.shape)
                 remain = mask.shape[0]
 
-            total += mask.shape[0]
-            num_filters.append(remain)
-            filters_mask.append(mask.copy())
-
     prune_ratio = pruned / total
     print(f'Prune channels: {pruned}\tPrune ratio: {prune_ratio:.3f}')
 
-    return pruned_filters[1:], pruned_maskers
+    return pruned_filters, pruned_maskers
 
 
-def init_weights_from_loose_model_shortcut(all_conv_layer, Conv_id, prune_model, model, CBLidx2mask):
-    for i, idx in enumerate(all_conv_layer):
-        if i > 0:
-            if idx in Conv_id:
-                out_channel_idx = np.argwhere(CBLidx2mask[idx])[:, 0].tolist()
-                # last conv index
-                last_conv_index = all_conv_layer[all_conv_layer.index(idx) - 1]
-                if last_conv_index in Conv_id:
-                    in_channel_idx = np.argwhere(CBLidx2mask[last_conv_index])[:, 0].tolist()
-                else:
-                    in_channel_idx = list(range(
-                        list(prune_model.named_modules())[all_conv_layer[all_conv_layer.index(idx) - 1]][
-                            1].out_channels))
-            else:
-                # we should make conv2's input equal to the output channel of conv1.
-                out_channel_idx = list(range(list(prune_model.named_modules())[idx][1].out_channels))
-                index = all_conv_layer[all_conv_layer.index(idx) - 1]
-                in_channel_idx = np.argwhere(CBLidx2mask[index])[:, 0].tolist()
+def init_weights_from_loose_model_shortcut(compact_model, model, CBLidx2mask, downsample_idx):
+    layer_nums = [k for k in CBLidx2mask.keys()]
+    for idx, layer_num in enumerate(layer_nums):
 
-            compact_bn, loose_bn = list(prune_model.named_modules())[idx + 1][1], list(model.named_modules())[idx + 1][1]
-            compact_bn.weight.data = loose_bn.weight.data[out_channel_idx].clone()
-            compact_bn.bias.data = loose_bn.bias.data[out_channel_idx].clone()
-            compact_bn.running_mean.data = loose_bn.running_mean.data[out_channel_idx].clone()
-            compact_bn.running_var.data = loose_bn.running_var.data[out_channel_idx].clone()
+        out_channel_idx = np.argwhere(CBLidx2mask[layer_num])[:, 0].tolist()
+        if idx == 0:
+            in_channel_idx = [0,1,2]
+        elif layer_num+1 in downsample_idx:
+            last_conv_index = layer_nums[idx-3]
+            in_channel_idx = np.argwhere(CBLidx2mask[last_conv_index])[:, 0].tolist()
+        else:
+            last_conv_index = layer_nums[idx-1]
+            in_channel_idx = np.argwhere(CBLidx2mask[last_conv_index])[:, 0].tolist()
 
-            compact_conv, loose_conv = list(prune_model.named_modules())[idx][1], list(model.named_modules())[idx][1]
-            tmp = loose_conv.weight.data[:, in_channel_idx, :, :].clone()
-            compact_conv.weight.data = tmp[out_channel_idx, :, :, :].clone()
+        compact_bn, loose_bn = list(compact_model.named_modules())[layer_num + 1][1], list(model.named_modules())[layer_num + 1][1]
+        compact_bn.weight.data = loose_bn.weight.data[out_channel_idx].clone()
+        compact_bn.bias.data = loose_bn.bias.data[out_channel_idx].clone()
+        compact_bn.running_mean.data = loose_bn.running_mean.data[out_channel_idx].clone()
+        compact_bn.running_var.data = loose_bn.running_var.data[out_channel_idx].clone()
+
+        compact_conv, loose_conv = list(compact_model.named_modules())[layer_num][1], list(model.named_modules())[layer_num][1]
+        tmp = loose_conv.weight.data[:, in_channel_idx, :, :].clone()
+        compact_conv.weight.data = tmp[out_channel_idx, :, :, :].clone()
+
+    fc_in_channel_idx = np.argwhere(CBLidx2mask[layer_num])[:, 0].tolist()
+    compact_model.fc.weight.data = model.fc.weight.data[:, fc_in_channel_idx].clone()
+        # if idx in Conv_id:
+        #     # out_channel_idx = np.argwhere(CBLidx2mask[idx])[:, 0].tolist()
+        #     # last conv index
+        #     last_conv_index = all_conv_layer[all_conv_layer.index(idx) - 1]
+        #     if last_conv_index in Conv_id:
+        #         in_channel_idx = np.argwhere(CBLidx2mask[last_conv_index])[:, 0].tolist()
+        #     else:
+        #         in_channel_idx = list(range(
+        #             list(prune_model.named_modules())[all_conv_layer[all_conv_layer.index(idx) - 1]][
+        #                 1].out_channels))
+        # else:
+        #     # we should make conv2's input equal to the output channel of conv1.
+        #     # out_channel_idx = list(range(list(prune_model.named_modules())[idx][1].out_channels))
+        #     index = all_conv_layer[all_conv_layer.index(idx) - 1]
+        #     in_channel_idx = np.argwhere(CBLidx2mask[index])[:, 0].tolist()
+
+        # compact_bn, loose_bn = list(prune_model.named_modules())[idx + 1][1], list(model.named_modules())[idx + 1][1]
+        # compact_bn.weight.data = loose_bn.weight.data[out_channel_idx].clone()
+        # compact_bn.bias.data = loose_bn.bias.data[out_channel_idx].clone()
+        # compact_bn.running_mean.data = loose_bn.running_mean.data[out_channel_idx].clone()
+        # compact_bn.running_var.data = loose_bn.running_var.data[out_channel_idx].clone()
+        #
+        # compact_conv, loose_conv = list(prune_model.named_modules())[idx][1], list(model.named_modules())[idx][1]
+        # tmp = loose_conv.weight.data[:, in_channel_idx, :, :].clone()
+        # compact_conv.weight.data = tmp[out_channel_idx, :, :, :].clone()
 
 
 def init_weights_from_loose_model(all_conv_layer, Conv_id, prune_model, model, CBLidx2mask):
@@ -199,26 +222,26 @@ def init_weights_from_loose_model(all_conv_layer, Conv_id, prune_model, model, C
 
 
 def merge_mask(CBLidx2mask, CBLidx2filter):
-    mask_begin = [23, 39, 55]
-    # mask_groups = [[23, 26, 32], [39, 42, 48], [55, 58, 64]]
+    # mask_begin = [23, 39, 55]
+    mask_groups = [[1, 10, 16], [23, 26, 32], [39, 42, 48], [55, 58, 64]]
     # for idx, mod in enumerate(model.modules()):
-    for idx in mask_begin:
+    for layer1, layer2, layer3 in mask_groups:
         Merge_masks = []
-        Merge_masks.append(torch.Tensor(CBLidx2mask[idx]).unsqueeze(0))
-        Merge_masks.append(torch.Tensor(CBLidx2mask[idx+3]).unsqueeze(0))
-        Merge_masks.append(torch.Tensor(CBLidx2mask[idx+9]).unsqueeze(0))
+        Merge_masks.append(torch.Tensor(CBLidx2mask[layer1]).unsqueeze(0))
+        Merge_masks.append(torch.Tensor(CBLidx2mask[layer2]).unsqueeze(0))
+        Merge_masks.append(torch.Tensor(CBLidx2mask[layer3]).unsqueeze(0))
         Merge_masks = torch.cat(Merge_masks, 0)
         merge_mask = (torch.sum(Merge_masks, dim=0) > 0).float()
 
         filter_num = int(torch.sum(merge_mask).item())
         merge_mask = np.array(merge_mask)
-        CBLidx2mask[idx] = merge_mask
-        CBLidx2mask[idx + 3] = merge_mask
-        CBLidx2mask[idx + 9] = merge_mask
+        CBLidx2mask[layer1] = merge_mask
+        CBLidx2mask[layer2] = merge_mask
+        CBLidx2mask[layer3] = merge_mask
 
-        CBLidx2filter[idx] = filter_num
-        CBLidx2filter[idx + 3] = filter_num
-        CBLidx2filter[idx + 9] = filter_num
+        CBLidx2filter[layer1] = filter_num
+        CBLidx2filter[layer2] = filter_num
+        CBLidx2filter[layer3] = filter_num
     return CBLidx2mask, CBLidx2filter
 
     # for i in range(len(model.module_defs) - 1, -1, -1):

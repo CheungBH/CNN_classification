@@ -100,6 +100,9 @@ class ResNet(nn.Module):
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
+        self.inplanes = 64
+        self.outplanes = 512
+
         if not cfg:
             cfg = [[64, 64], [64, 64], [64, 64], [64, 64],
                    [64, 128], [128, 128], [128, 128], [128, 128],
@@ -109,21 +112,27 @@ class ResNet(nn.Module):
             with open(cfg, "r") as f:
                 cfg_ls = f.readlines()[0][:-1].split(",")
                 cfg_ls = [int(x) for x in cfg_ls]
-            # cfg = [[64, 32], [32, 64], [64, 41], [41, 64],
-            #        [64, 85], [85, 128], [128, 72], [72, 128],
-            #        [128, 136], [136, 256], [256, 70], [70, 256],
-            #        [256, 100], [100, 512], [512, 232], [232, 512]]
 
-            cfg = [[64, cfg_ls[0]], [cfg_ls[0], 64], [64, cfg_ls[1]], [cfg_ls[1], 64],
-                   [64, cfg_ls[2]], [cfg_ls[2], 128], [128, cfg_ls[3]], [cfg_ls[3], 128],
-                   [128, cfg_ls[4]], [cfg_ls[4], 256], [256, cfg_ls[5]], [cfg_ls[5], 256],
-                   [256, cfg_ls[6]], [cfg_ls[6], 512], [512, cfg_ls[7]], [cfg_ls[7], 512]]
+            if len(cfg_ls) == 8:
+                cfg = [[64, cfg_ls[0]], [cfg_ls[0], 64], [64, cfg_ls[1]], [cfg_ls[1], 64],
+                       [64, cfg_ls[2]], [cfg_ls[2], 128], [128, cfg_ls[3]], [cfg_ls[3], 128],
+                       [128, cfg_ls[4]], [cfg_ls[4], 256], [256, cfg_ls[5]], [cfg_ls[5], 256],
+                       [256, cfg_ls[6]], [cfg_ls[6], 512], [512, cfg_ls[7]], [cfg_ls[7], 512]]
+            elif len(cfg_ls) == 20:
+                self.inplanes = cfg_ls[0]
+                self.outplanes = cfg_ls[-1]
+                cfg = [[cfg_ls[0], cfg_ls[1]], [cfg_ls[1], cfg_ls[2]], [cfg_ls[2], cfg_ls[3]], [cfg_ls[3], cfg_ls[4]],
+                       [cfg_ls[4], cfg_ls[5]], [cfg_ls[5], cfg_ls[6]], [cfg_ls[6], cfg_ls[8]], [cfg_ls[8], cfg_ls[9]],
+                       [cfg_ls[9], cfg_ls[10]], [cfg_ls[10], cfg_ls[11]], [cfg_ls[11], cfg_ls[13]], [cfg_ls[13], cfg_ls[14]],
+                       [cfg_ls[14], cfg_ls[15]], [cfg_ls[15], cfg_ls[16]], [cfg_ls[16], cfg_ls[18]], [cfg_ls[18], cfg_ls[19]]]
+            else:
+                raise ValueError("The configuration file is wrong!")
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
 
-        self.inplanes = 64
+        # self.inplanes = 64
         self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -149,7 +158,7 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, cfg[12:16], layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc = nn.Linear(self.outplanes * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
