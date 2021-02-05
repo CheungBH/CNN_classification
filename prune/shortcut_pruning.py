@@ -4,7 +4,7 @@ from src.tester import ModelInference
 from src.opt import opt
 
 
-def shortcut_prune(model_path, save_cfg_path, save_model_path):
+def shortcut_prune(model_path, save_cfg_path="shortcut.txt", save_model_path="shortcut_model_resnet18.pth"):
     model_name = config.model_name
     classes = config.classes
     num_classes = len(classes)

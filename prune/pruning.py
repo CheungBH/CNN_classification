@@ -4,7 +4,7 @@ from src.tester import ModelInference
 from src.opt import opt
 
 
-def normal_prune(model_path, save_cfg_path, save_model_path):
+def normal_prune(model_path, save_cfg_path="normal_cfg.txt", save_model_path="normal_model_resnet18.pth"):
     model_name = config.model_name
     classes = config.classes
     num_classes = len(classes)
@@ -43,7 +43,8 @@ def test_prune_model(test_model_path, cfg, img_path):
 
 if __name__ == '__main__':
     print("begin to prune")
-    normal_prune(model_path=config.model_path, save_cfg_path=config.pruned_cfg_file,
-                 save_model_path=config.pruned_model_file)
-    # print("begin to test")
+    normal_prune(model_path=config.model_path)
+    # normal_prune(model_path=config.model_path, save_cfg_path=config.pruned_cfg_file,
+    #              save_model_path=config.pruned_model_file)
+    #     # print("begin to test")
     # test_prune_model(config.pruned_model_file, config.pruned_cfg_file, config.img_path)
