@@ -44,7 +44,6 @@ def test_prune_model(test_model_path, cfg, img_path):
 
 if __name__ == '__main__':
     print("begin to prune")
-    opt.loadModel = None
     shortcut_prune(model_path=config.model_path, save_cfg_path=config.pruned_cfg_file,
                  save_model_path=config.pruned_model_file)
     # print("begin to test")
